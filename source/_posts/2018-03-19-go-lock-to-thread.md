@@ -1,8 +1,7 @@
 ---
-title: goroutine locked-to-thread
+title: 忽略掉一些奇怪的goroutine信息
 tags:
   - golang
-  - lock
 categories:
   - 语言
 date: 2018-03-19 18:55:19
