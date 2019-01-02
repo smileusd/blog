@@ -1,8 +1,8 @@
 ---
 title: lvconvert-down
 update: 2018-10-12 14:42:45
-tags:
-categories: 操作系统
+tags: linux
+categories: system
 ---
 
 记录一个kernel bug.

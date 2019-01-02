@@ -3,9 +3,8 @@ title: 初识微服务
 update: 2018-03-22 15:04:26
 tags:
 - microservice
-- 云计算
 categories:
-- 讲座
+- cloud
 ---
 
 星环讲座: 初识微服务

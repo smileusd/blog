@@ -1,8 +1,9 @@
+---
 title: 记一次疑云重重的kubelet延迟很高的问题
 update: 2018-06-29 11:19:32
 tags: kubernetes
-categories:
-
+categories: cloud
+---
 最近在调查一个kubernetes中发现Kubelet的pods目录:
 ```
 /var/lib/kubelet/pods/xxx/volumes/

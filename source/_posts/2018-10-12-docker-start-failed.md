@@ -1,8 +1,8 @@
 ---
 title: docker-start-failed
 update: 2018-10-12 14:44:39
-tags: 容器
-categories: 云计算
+tags: docker
+categories: cloud
 ---
 
 make build过程中忽然出现错误:

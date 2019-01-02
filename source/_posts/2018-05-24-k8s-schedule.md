@@ -1,8 +1,8 @@
 ---
 title: k8s-schedule
 update: 2018-05-24 11:16:23
-tags:
-categories:
+tags: kubernetes
+categories: cloud
 ---
 
 #### Labels and Selectors

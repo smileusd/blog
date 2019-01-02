@@ -5,8 +5,7 @@ tags:
 - container
 - kubernetes
 categories:
-- 随笔
-- 讲座
+- cloud
 ---
 
 

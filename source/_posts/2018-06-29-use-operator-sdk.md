@@ -2,7 +2,7 @@
 title: operator-framework的使用和调查
 update: 2018-06-29 11:18:36
 tags: kubernetes
-categories:
+categories: cloud
 ---
 
 准备用CRD做一个数据迁移的operator, 将不同结点的pvc迁移. 于是决定使用operator-sdk.

@@ -4,7 +4,7 @@ update: 2018-03-21 12:21:03
 tags: 
 - git
 categories:
-- 项目管理
+- coding
 ---
 
 在hexo中, 在themes目录下git clone了一个子目录themes/next. git push 到远程仓库后没有看到themes/next中的内容, 也无法git add

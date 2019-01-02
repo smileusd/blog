@@ -2,7 +2,7 @@
 title: golang map 内存布局和原理
 update: 2018-07-02 21:10:01
 tags: golang
-categories: 语言
+categories: coding
 ---
 
 #### map数据结构

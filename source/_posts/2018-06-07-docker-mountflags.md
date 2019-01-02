@@ -2,7 +2,7 @@
 title: docker-mountflags
 update: 2018-06-07 12:31:15
 tags: docker
-categories:
+categories: cloud
 ---
 
 docker run 的时候如果出现类似:

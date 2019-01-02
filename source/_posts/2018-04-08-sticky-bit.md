@@ -3,7 +3,7 @@ title: sticky-bit
 update: 2018-04-08 20:00:11
 tags:
 - linux
-categories:
+categories: system
 ---
 
 在linux的权限中, 发现不仅仅有rwx, 还有一个t, 如下所示:

@@ -1,7 +1,7 @@
 ---
 title: repair-thinpool
 update: 2018-10-12 14:34:41
-tags:
+tags: lvm
 categories: storage
 ---
 

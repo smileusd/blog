@@ -5,7 +5,7 @@ tags:
 - linux
 - shell
 categories:
-- 系统
+- system
 ---
 
 ### 问题描述

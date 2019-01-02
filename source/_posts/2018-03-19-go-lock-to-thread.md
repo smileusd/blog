@@ -3,7 +3,7 @@ title: 忽略掉一些奇怪的goroutine信息
 tags:
   - golang
 categories:
-  - 语言
+  - coding
 date: 2018-03-19 18:55:19
 ---
 
