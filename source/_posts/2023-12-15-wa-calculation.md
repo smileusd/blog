@@ -1,5 +1,9 @@
-
-
+---
+title: what is wa annd how is it calculated 
+update: 2023-12-29 14:42:45
+tags: linux
+categories: system
+---
 ### Question: wa usage
 
 When you run top, you can see the usage of wa. What does it means and how it calculated?

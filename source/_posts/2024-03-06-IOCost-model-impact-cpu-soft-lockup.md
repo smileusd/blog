@@ -1,9 +1,9 @@
-# IOCost model impact cpu soft lockup
-
+---
 title: IOCost model impact cpu soft lockup
 update: 2024-03-06 14:42:45
 tags: linux
 categories: system
+---
 
 ### Reproduce 
 

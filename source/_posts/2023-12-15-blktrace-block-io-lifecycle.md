@@ -1,3 +1,10 @@
+---
+title: blktrace block io lifecycle
+update: 2023-12-29 14:42:45
+tags: linux
+categories: system
+---
+
 ### Question: trace the life of IO by blktrace/blkparse
 
 [blktrace](https://linux.die.net/man/8/blktrace)
