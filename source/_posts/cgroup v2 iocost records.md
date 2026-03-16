@@ -144,3 +144,80 @@ struct ioc_gq {
 };
 ```
 
+
+
+Y_4K/y_b = a + b* X_4K / X_b
+
+
+
+Y_4k = a* X_4k *Y_b / X_b.   a= Y_4k * X_b / (X_4k*y_b)
+
+Ssd iops: a_8k= 70k*8k / (4k*51k)  = 2.745
+
+a_16k = 70k * 16k / ( 29k * 4k) = 
+
+
+
+y = a+ bx + cx2
+
+SSD: 
+
+<4k:
+
+IOPS = 80000
+
+BPS = 80000 * x
+
+4k-16k: 
+
+BPS: 
+
+IOPS = y/x = 70M/x + 57k - 2 * x
+
+BPS = 70M + 57k*x - 2x^2
+
+x > 16k:
+
+BPS = BPS_16k
+
+IOPS = BPS / x
+
+NVMe: 
+
+<=16k
+
+BPS = 150000 * x
+
+iops = 150000
+
+HDD:
+
+<=16k
+
+BPS = 100 * x
+
+IOPS = 100
+
+
+
+270M = a + b * 4k + c * 16M
+
+400M = a + b * 8k + c * 64M
+
+460M = a + b * 16k + c * 256M
+
+130M = 4k  * b+ c * 48M
+
+60M = 8k * b + c * 192M
+
+200M = - c * 96M
+
+c= -2.08
+
+b = 57.42k
+
+a = 460M - 918.72M + 532.48M = 74M
+
+
+
+(y_4k, 4k). 

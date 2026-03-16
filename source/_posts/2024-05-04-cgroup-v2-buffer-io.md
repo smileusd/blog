@@ -1,11 +1,11 @@
 ---
-title: Why the cgroup v1 can not throttle the buffer io but cgroup v2 can
+title: Cgroup DIsk IO Deep Dive
 update: 2024-05-06 14:42:45
 tags: linux
 categories: system
+
 ---
 
-## Why the cgroup v1 can not throttle the buffer io but cgroup v2 can
 
 
 ### What the cgroup init difference between v1 and v2
@@ -15,6 +15,7 @@ We know the basic buffer IO flow is to write the data into a dirty page on memor
 In March 2014, kernel merged the pr[ cgroup: implement unified hierarchy](https://lwn.net/Articles/592434/) about unified architecture in cgroup, that is the basic design of cgroup v2.
 
 There is the code of the main process of cgroup init. In the process of cgroup init in the function of “cgroup_init”, after setting up the cgroup root, initiating the subsystem of the cgroups and creating the mountpoints, the kernel registers the different cgroup filesystems on that mount point according to different cgroup types:
+
 
 ```
 int __init cgroup_init(void)
@@ -228,7 +229,7 @@ As the write as example, there is the simplify flow from syscall of write to ent
 ![cgroupv2_simple_flow](/images/cgroupv2_simple_flow.png)
 
 
-When call the write syscall with buffer io, vfs call the generic_perform_write function and run the interface write_begin and write_end in proper order. Between them, the raw_copy_from_user is the real data write from the user space into the kernel space of memory area. In the write_end stage, mark_buffer_dirty function marks the memory page and inode is dirty and wait to writeout: 
+When calling the write syscall with buffer io, vfs calls the generic_perform_write function and runs the interface write_begin and write_end in proper order. Between them, the raw_copy_from_user is the real data write from the user space into the kernel space of the memory area. In the write_end stage, mark_buffer_dirty function marks the memory page and inode is dirty and wait to writeout: 
 
 
 ```
@@ -438,7 +439,6 @@ Now the wb has been prepared, it links to the real worker waiting to write out. 
 
 The wb_workfn function runs the __writeback_single_inode and calls the interface of writepages or writepage.  The different file system and backend implement the interfaces. But they have a similar process including wbc_init_bio and wbc_account_cgroup_owner before submitting the bio. 
 
-
 ![cgroupv2_simple_flow2](/images/cgroupv2_simple_flow2.png)
 
 
@@ -527,7 +527,7 @@ void bio_associate_blkg_from_css(struct bio *bio,
 ```
 
 
-Here the bio has to bind to the IO cgroup, if the css is empty, it will bind to the root cgroup.
+Here the bio binds to the IO cgroup on bi_blkg, if the css is empty, it will bind to the root cgroup.
 
 The wbc_account_cgroup_owner is a solution for this question: if multiple processes from different cgroup write into the same inode, how to decide who is the owner of this inode right now. The wbc_account_cgroup_owner counts the pages to different cgroup by memory id. After finishing the current writeback, the wbc_detach_inode function uses Boyer-Moore majority vote algorithm to select the owner of this inode, then calls inode_switch_wbs to switch the bdi_writeback for the inode.
 
@@ -604,5 +604,396 @@ struct cgroup_subsys_state *mem_cgroup_css_from_folio(struct folio *folio)
 
 The cgroup v1 returns the root cgroup as well because it can not handle this case.
 
-So in cgroup v2, before entering the block layer, the filesystem layer has decided which inode, which memory cgroup and which IO cgroup bind to this bio. Then it is transfer to direct IO after calling submit_bio. 
+So in cgroup v2, before entering the block layer, the filesystem layer has decided which IO cgroup binds to this bio according to the inode and memory cgroup. The bio contains the io cgroup and then it is transferred to direct IO after calling submit_bio. 
 
+
+```
+struct bio {
+…
+#ifdef CONFIG_BLK_CGROUP
+	/*
+	 * Represents the association of the css and request_queue for the bio.
+	 * If a bio goes direct to device, it will not have a blkg as it will
+	 * not have a request_queue associated with it.  The reference is put
+	 * on release of the bio.
+	 */
+	struct blkcg_gq		*bi_blkg;
+	struct bio_issue	bi_issue;
+…
+}
+```
+
+
+
+### How IO throttling in block layer
+
+There are the different throttling files with cgroup v1 and v2
+
+
+```
+static struct cftype throtl_legacy_files[] = {
+	{
+		.name = "throttle.read_bps_device",
+		.private = offsetof(struct throtl_grp, bps[READ][LIMIT_MAX]),
+		.seq_show = tg_print_conf_u64,
+		.write = tg_set_conf_u64,
+	},
+	{
+		.name = "throttle.write_bps_device",
+		.private = offsetof(struct throtl_grp, bps[WRITE][LIMIT_MAX]),
+		.seq_show = tg_print_conf_u64,
+		.write = tg_set_conf_u64,
+	},
+	{
+		.name = "throttle.read_iops_device",
+		.private = offsetof(struct throtl_grp, iops[READ][LIMIT_MAX]),
+		.seq_show = tg_print_conf_uint,
+		.write = tg_set_conf_uint,
+	},
+	{
+		.name = "throttle.write_iops_device",
+		.private = offsetof(struct throtl_grp, iops[WRITE][LIMIT_MAX]),
+		.seq_show = tg_print_conf_uint,
+		.write = tg_set_conf_uint,
+	},
+	{
+		.name = "throttle.io_service_bytes",
+		.private = offsetof(struct throtl_grp, stat_bytes),
+		.seq_show = tg_print_rwstat,
+	},
+	{
+		.name = "throttle.io_service_bytes_recursive",
+		.private = offsetof(struct throtl_grp, stat_bytes),
+		.seq_show = tg_print_rwstat_recursive,
+	},
+	{
+		.name = "throttle.io_serviced",
+		.private = offsetof(struct throtl_grp, stat_ios),
+		.seq_show = tg_print_rwstat,
+	},
+	{
+		.name = "throttle.io_serviced_recursive",
+		.private = offsetof(struct throtl_grp, stat_ios),
+		.seq_show = tg_print_rwstat_recursive,
+	},
+	{ }	/* terminate */
+};
+```
+
+
+
+```
+static struct cftype throtl_files[] = {
+	{
+		.name = "max",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = tg_print_limit,
+		.write = tg_set_limit,
+		.private = LIMIT_MAX,
+	},
+	{ }	/* terminate */
+};
+```
+
+
+In cgroup v2 we only need to set all the disk IO limitations like read/write bps and iops on io.max file. Once we set the io.max, all the blk cgroup configs are set to the throtl_grp structure by  tg_set_limit. Here the doc focusing on the cgroup v2 implementation. 
+
+When registering the blk throttle to the disk, it sets the throtl_slice according to different disk types. That is the default window of calculating the throttling IO.
+
+
+```
+void blk_throtl_register(struct gendisk *disk)
+{
+	struct request_queue *q = disk->queue;
+	struct throtl_data *td;
+	int i;
+
+	td = q->td;
+	BUG_ON(!td);
+
+	if (blk_queue_nonrot(q)) {
+		td->throtl_slice = DFL_THROTL_SLICE_SSD;
+		td->filtered_latency = LATENCY_FILTERED_SSD;
+	} else {
+		td->throtl_slice = DFL_THROTL_SLICE_HD;
+		td->filtered_latency = LATENCY_FILTERED_HD;
+           }
+}
+
+```
+
+
+Following the tg_set_limit function, the tg_conf_updated is important function to update the throtl_grp and calculate the wait time and dispatch time of the bio.  
+
+
+```
+static void tg_conf_updated(struct throtl_grp *tg, bool global)
+{
+	struct throtl_service_queue *sq = &tg->service_queue;
+	struct cgroup_subsys_state *pos_css;
+	struct blkcg_gq *blkg;
+
+	throtl_log(&tg->service_queue,
+		   "limit change rbps=%llu wbps=%llu riops=%u wiops=%u",
+		   tg_bps_limit(tg, READ), tg_bps_limit(tg, WRITE),
+		   tg_iops_limit(tg, READ), tg_iops_limit(tg, WRITE));
+
+	blkg_for_each_descendant_pre(blkg, pos_css,
+			global ? tg->td->queue->root_blkg : tg_to_blkg(tg)) {
+		struct throtl_grp *this_tg = blkg_to_tg(blkg);
+		struct throtl_grp *parent_tg;
+
+		tg_update_has_rules(this_tg);
+		/* ignore root/second level */
+		if (!cgroup_subsys_on_dfl(io_cgrp_subsys) || !blkg->parent ||
+		    !blkg->parent->parent)
+			continue;
+		parent_tg = blkg_to_tg(blkg->parent);
+		/*
+		 * make sure all children has lower idle time threshold and
+		 * higher latency target
+		 */
+		this_tg->idletime_threshold = min(this_tg->idletime_threshold,
+				parent_tg->idletime_threshold);
+		this_tg->latency_target = max(this_tg->latency_target,
+				parent_tg->latency_target);
+	}
+
+	/*
+	 * We're already holding queue_lock and know @tg is valid.  Let's
+	 * apply the new config directly.
+	 *
+	 * Restart the slices for both READ and WRITES. It might happen
+	 * that a group's limit are dropped suddenly and we don't want to
+	 * account recently dispatched IO with new low rate.
+	 */
+	throtl_start_new_slice(tg, READ, false);
+	throtl_start_new_slice(tg, WRITE, false);
+
+	if (tg->flags & THROTL_TG_PENDING) {
+		tg_update_disptime(tg);
+		throtl_schedule_next_dispatch(sq->parent_sq, true);
+	}
+}
+
+```
+
+
+
+```
+static void tg_update_disptime(struct throtl_grp *tg)
+{
+	struct throtl_service_queue *sq = &tg->service_queue;
+	unsigned long read_wait = -1, write_wait = -1, min_wait = -1, disptime;
+	struct bio *bio;
+
+	bio = throtl_peek_queued(&sq->queued[READ]);
+	if (bio)
+		tg_may_dispatch(tg, bio, &read_wait);
+
+	bio = throtl_peek_queued(&sq->queued[WRITE]);
+	if (bio)
+		tg_may_dispatch(tg, bio, &write_wait);
+
+	min_wait = min(read_wait, write_wait);
+	disptime = jiffies + min_wait;
+
+	/* Update dispatch time */
+	throtl_rb_erase(&tg->rb_node, tg->service_queue.parent_sq);
+	tg->disptime = disptime;
+	tg_service_queue_add(tg);
+
+	/* see throtl_add_bio_tg() */
+	tg->flags &= ~THROTL_TG_WAS_EMPTY;
+}
+```
+
+
+The dispatch time use the minimum of the write wait time and read wait time calculated by the tg_may_dispatch. Then add the throtl_grp into the service queue wait to dispatch. Every update the io.max, the kernel need new window slice to throttling. 
+
+
+```
+static inline void throtl_start_new_slice(struct throtl_grp *tg, bool rw,
+					  bool clear_carryover)
+{
+	tg->bytes_disp[rw] = 0;
+	tg->io_disp[rw] = 0;
+	tg->slice_start[rw] = jiffies;
+	tg->slice_end[rw] = jiffies + tg->td->throtl_slice;
+	if (clear_carryover) {
+		tg->carryover_bytes[rw] = 0;
+		tg->carryover_ios[rw] = 0;
+	}
+}
+```
+
+
+The global variable [jiffies](https://litux.nl/mirror/kerneldevelopment/0672327201/ch10lev1sec3.html) holds the number of ticks that have occurred since the system booted. On boot, the kernel initializes the variable to zero, and it is incremented by one during each timer interrupt. Thus, because there are HZ timer interrupts in a second, there are HZ jiffies in a second. The system uptime is therefore jiffies/HZ seconds.
+
+It is similar for the disk IO to the cpu: dividing the disk resource into time according to the disk frequency. The “time” is not the real linear time but it is “jiffy” which the numbers of the tick from uptime. So the uptime = jiffies / HZ.
+
+The core algorithm is that for every cgroup for this disk, kernel use sibling window (slice) to decide how much time the bio need to wait or just dispatch. It calculates the max bps or iops in this window. If the latest bio is exceed the numbers of the bps or iops, it extends the window and wait time of the window end. So it is not the fixed slice except the new slice of beginning. The details of the implement is in the tg_may_dispatch. 
+
+
+```
+/*
+ * Returns whether one can dispatch a bio or not. Also returns approx number
+ * of jiffies to wait before this bio is with-in IO rate and can be dispatched
+ */
+static bool tg_may_dispatch(struct throtl_grp *tg, struct bio *bio,
+			    unsigned long *wait)
+{
+	bool rw = bio_data_dir(bio);
+	unsigned long bps_wait = 0, iops_wait = 0, max_wait = 0;
+	u64 bps_limit = tg_bps_limit(tg, rw);
+	u32 iops_limit = tg_iops_limit(tg, rw);
+
+	/*
+ 	 * Currently whole state machine of group depends on first bio
+	 * queued in the group bio list. So one should not be calling
+	 * this function with a different bio if there are other bios
+	 * queued.
+	 */
+	BUG_ON(tg->service_queue.nr_queued[rw] &&
+	       bio != throtl_peek_queued(&tg->service_queue.queued[rw]));
+
+	/* If tg->bps = -1, then BW is unlimited */
+	if ((bps_limit == U64_MAX && iops_limit == UINT_MAX) ||
+	    tg->flags & THROTL_TG_CANCELING) {
+		if (wait)
+			*wait = 0;
+		return true;
+	}
+
+	/*
+	 * If previous slice expired, start a new one otherwise renew/extend
+	 * existing slice to make sure it is at least throtl_slice interval
+	 * long since now. New slice is started only for empty throttle group.
+	 * If there is queued bio, that means there should be an active
+	 * slice and it should be extended instead.
+	 */
+	if (throtl_slice_used(tg, rw) && !(tg->service_queue.nr_queued[rw]))
+		throtl_start_new_slice(tg, rw, true);
+	else {
+		if (time_before(tg->slice_end[rw],
+		    jiffies + tg->td->throtl_slice))
+			throtl_extend_slice(tg, rw,
+				jiffies + tg->td->throtl_slice);
+	}
+
+	bps_wait = tg_within_bps_limit(tg, bio, bps_limit);
+	iops_wait = tg_within_iops_limit(tg, bio, iops_limit);
+	if (bps_wait + iops_wait == 0) {
+		if (wait)
+			*wait = 0;
+		return true;
+	}
+
+	max_wait = max(bps_wait, iops_wait);
+
+	if (wait)
+		*wait = max_wait;
+
+	if (time_before(tg->slice_end[rw], jiffies + max_wait))
+		throtl_extend_slice(tg, rw, jiffies + max_wait);
+
+	return false;
+}
+
+```
+
+
+Now we look back to the bio follow and the blk_throtl_bio is between the A and Q. 
+
+
+![images/throttling](images/throttling.png)
+
+
+If set to io.max, every bio goes through the _blk_throtl_bio and runs tg_may_dispatch to check whether the bio can be dispatched directly or not. If not, calculate the wait time and update the timer with the minimum wait time from the rb_tree. Finally it adds the bio into the service queue and waits for the timer to run the next dispatch loop.
+
+
+![blk_throttleing](images/blk_throttling.png)
+
+
+
+### Disk IO QoS
+
+Both of them are controlled by the rq_qos structure:
+
+
+```
+struct rq_qos {
+	const struct rq_qos_ops *ops;
+	struct gendisk *disk;
+	enum rq_qos_id id;
+	struct rq_qos *next;
+#ifdef CONFIG_BLK_DEBUG_FS
+	struct dentry *debugfs_dir;
+#endif
+};
+
+struct rq_qos_ops {
+	void (*throttle)(struct rq_qos *, struct bio *);
+	void (*track)(struct rq_qos *, struct request *, struct bio *);
+	void (*merge)(struct rq_qos *, struct request *, struct bio *);
+	void (*issue)(struct rq_qos *, struct request *);
+	void (*requeue)(struct rq_qos *, struct request *);
+	void (*done)(struct rq_qos *, struct request *);
+	void (*done_bio)(struct rq_qos *, struct bio *);
+	void (*cleanup)(struct rq_qos *, struct bio *);
+	void (*queue_depth_changed)(struct rq_qos *);
+	void (*exit)(struct rq_qos *);
+	const struct blk_mq_debugfs_attr *debugfs_attrs;
+};
+```
+
+
+The rq_qos is the singly linked list. There are 3 rq_qos plugins that can be used: blk-iolatency, blk-iocost and blk-wbt.
+
+
+```
+static struct cftype iolatency_files[] = {
+	{
+		.name = "latency",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = iolatency_print_limit,
+		.write = iolatency_set_limit,
+	},
+	{}
+};
+```
+
+
+
+```
+static struct cftype ioc_files[] = {
+	{
+		.name = "weight",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = ioc_weight_show,
+		.write = ioc_weight_write,
+	},
+	{
+		.name = "cost.qos",
+		.flags = CFTYPE_ONLY_ON_ROOT,
+		.seq_show = ioc_qos_show,
+		.write = ioc_qos_write,
+	},
+	{
+		.name = "cost.model",
+		.flags = CFTYPE_ONLY_ON_ROOT,
+		.seq_show = ioc_cost_model_show,
+		.write = ioc_cost_model_write,
+	},
+	{}
+};
+```
+
+
+We have learned the block layer basic follow and we can know the place of rq_qos throttling. 
+
+
+![alt_text](images/disk_qos_1.png)
+
+
+IO QoS has complicated algorithms for different policy and implementation. Here is just making an entrance but not deep diving. I will make another article to talk about the disk IO QoS.
