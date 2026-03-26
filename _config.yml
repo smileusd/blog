@@ -98,6 +98,12 @@ ignore:
 ## Themes: https://hexo.io/themes/
 theme: next
 
+# Mermaid diagram configuration
+mermaid:
+  enable: true
+  version: "10.6.1"
+  options:
+
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
